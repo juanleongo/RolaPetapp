@@ -1,380 +1,759 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Badge } from './ui/badge';
-import { 
-  Search, 
-  Navigation, 
-  MapPin, 
-  Users, 
-  Clock, 
-  Zap, 
-  Route,
-  Star,
-  Filter,
-  ChevronDown,
-  ChevronUp
-} from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Popup,Polyline } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+import './Mapa.css';
+import { PanelRuteo} from './maps/PanelRuteo';
+// Componentes separados
+import Cabecera from './maps/Cabecera';
+import ControlesMapa from './maps/ControlesMapa';
+import PanelResultados from './maps/PanelResultados';
+import { mapasBase } from '../mapasBase';
 
-export function MapView({ onViewChange }) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRoute, setSelectedRoute] = useState(null);
-  const [showFilters, setShowFilters] = useState(false);
+// FIX CRÍTICO: Corregir rutas de iconos Leaflet - DEBE IR ANTES DE TODO
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: ('leaflet/dist/images/marker-icon-2x.png'),
+  iconUrl: ('leaflet/dist/images/marker-icon.png'),
+  shadowUrl: ('leaflet/dist/images/marker-shadow.png'),
+});
 
-  const mapPoints = [
-    {
-      id: 1,
-      name: 'Centro Comercial Andino',
-      type: 'commercial',
-      coordinates: { lat: 4.6698, lng: -74.0541 },
-      users: 3,
-      rating: 4.5
-    },
-    {
-      id: 2,
-      name: 'Universidad Nacional',
-      type: 'education',
-      coordinates: { lat: 4.6359, lng: -74.0834 },
-      users: 7,
-      rating: 4.8
-    },
-    {
-      id: 3,
-      name: 'Parque de la 93',
-      type: 'park',
-      coordinates: { lat: 4.6765, lng: -74.0495 },
-      users: 2,
-      rating: 4.6
-    },
-    {
-      id: 4,
-      name: 'Terminal TransMilenio',
-      type: 'transport',
-      coordinates: { lat: 4.6486, lng: -74.0676 },
-      users: 12,
-      rating: 4.2
-    }
-  ];
+export const MapaView = () => {
+  // Estados
+  const [center, setCenter] = useState([4.60971, -74.08175]);
+  const [miUbicacion, setMiUbicacion] = useState(null);
+  const [busqueda, setBusqueda] = useState('');
+  const [resultados, setResultados] = useState([]);
+  const [tipoMapa, setTipoMapa] = useState('vector_3857');
+  const [zoom, setZoom] = useState(13);
+  const [buscando, setBuscando] = useState(false);
+  const [mostrarPanelRuteo, setMostrarPanelRuteo] = useState(false);
+  const [destinoRuteo, setDestinoRuteo] = useState(null);
+  const [rutaCalculada, setRutaCalculada] = useState(null);
+  
+  // Referencias
+  const mapRef = useRef();
 
-  const suggestedRoutes = [
-    {
-      id: 1,
-      from: 'Centro',
-      to: 'Zona Rosa',
-      distance: '8.5 km',
-      time: '25 min',
-      difficulty: 'Fácil',
-      rating: 4.9,
-      users: 156,
-      bikelanePct: 85
-    },
-    {
-      id: 2,
-      from: 'Chapinero',
-      to: 'Universidad Nacional',
-      distance: '12.3 km',
-      time: '35 min',
-      difficulty: 'Moderado',
-      rating: 4.7,
-      users: 89,
-      bikelanePct: 70
-    },
-    {
-      id: 3,
-      from: 'Suba',
-      to: 'Centro',
-      distance: '15.2 km',
-      time: '42 min',
-      difficulty: 'Difícil',
-      rating: 4.4,
-      users: 234,
-      bikelanePct: 60
-    }
-  ];
+  // Detectar si el texto parece una dirección de Bogotá
+  const esDireccionBogota = (texto) => {
+    if (!texto) return false;
+    
+    // Patrones comunes en direcciones de Bogotá
+    const patronesDireccion = [
+      /^(KR|CRA|CL|AK|DG|TV|AV|CALLE|CARRERA|AVENIDA|DIAGONAL|TRANSVERSAL)\s*\d+/i,
+      /\d+\s*(ESTE|SUR|NORTE|OESTE|#|NUMERO|NO?\.?)/i,
+      /(MANZANA|MZ|BLOQUE|BL|INTERIOR|INT|APARTAMENTO|APTO|CASA|CS)\s*\d+/i
+    ];
+    
+    // También considerar formato "Calle 123 # 45-67"
+    const formatoConNumero = /\d+\s*#?\s*\d+\s*-?\s*\d*/;
+    
+    return patronesDireccion.some(patron => patron.test(texto)) || 
+           formatoConNumero.test(texto);
+  };
 
-  const activeUsers = [
-    {
-      id: 1,
-      name: 'Carlos M.',
-      vehicle: 'scooter',
-      location: 'Zona Rosa',
-      online: true
-    },
-    {
-      id: 2,
-      name: 'Ana S.',
-      vehicle: 'bicycle',
-      location: 'Chapinero',
-      online: true
-    },
-    {
-      id: 3,
-      name: 'Miguel R.',
-      vehicle: 'motorcycle',
-      location: 'Centro',
-      online: true
-    }
-  ];
-
-  const getDifficultyColor = (difficulty) => {
-    switch (difficulty) {
-      case 'Fácil': return 'bg-green-100 text-green-700';
-      case 'Moderado': return 'bg-yellow-100 text-yellow-700';
-      case 'Difícil': return 'bg-red-100 text-red-700';
-      default: return 'bg-gray-100 text-gray-700';
+  // Geocodificación con API IDECA (dirección → coordenadas)
+  const geocodificarDireccion = async (direccion) => {
+    try {
+      const apiKey = 'e2d6f043-7b63-417e-8fbe-db515898576f';
+      const geoUrl = `https://catalogopmb.catastrobogota.gov.co/PMBWeb/web/api?cmd=geocodificar&apikey=${apiKey}&query=${encodeURIComponent(direccion)}`;
+      
+      console.log('📍 Geocodificando dirección:', geoUrl);
+      
+      const respuesta = await fetch(geoUrl);
+      const datos = await respuesta.json();
+      
+      if (datos.response && datos.response.success) {
+        return {
+          nombre: datos.response.data.dirtrad,
+          tipo: '📍 Dirección',
+          localidad: datos.response.data.localidad,
+          upz: datos.response.data.nomupz,
+          barrio: datos.response.data.nomseccat,
+          direccion: datos.response.data.dirtrad,
+          direccionOriginal: datos.response.data.dirinput,
+          latitud: parseFloat(datos.response.data.latitude),
+          longitud: parseFloat(datos.response.data.longitude),
+          tipoDireccion: datos.response.data.tipo_direccion,
+          datosCompletos: datos.response.data,
+          esDireccion: true
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('❌ Error en geocodificación:', error);
+      return null;
     }
   };
 
-  const getVehicleIcon = (vehicle) => {
-    switch (vehicle) {
-      case 'scooter': return '🛴';
-      case 'bicycle': return '🚲';
-      case 'motorcycle': return '🏍️';
-      default: return '🚲';
+  // Transformar coordenadas ArcGIS
+  const transformarCoordenadasArcGIS = (geometry, esPoligono = false) => {
+    try {
+      // Si ya tenemos coordenadas WGS84 (y, x) en la geometría
+      if (geometry?.y && geometry?.x) {
+        // Verificar si ya son coordenadas válidas (Bogotá está entre lat 4-5, lng -75 a -74)
+        const lat = geometry.y;
+        const lng = geometry.x;
+        
+        if (lat >= 3 && lat <= 6 && lng >= -76 && lng <= -73) {
+          return { lat, lng };
+        }
+      }
+      
+      // Para polígonos (parques, barrios)
+      if (esPoligono && geometry?.rings?.[0]?.[0]) {
+        const lat = geometry.rings[0][0][1];
+        const lng = geometry.rings[0][0][0];
+        
+        // Validar que sean coordenadas razonables para Bogotá
+        if (lat >= 3 && lat <= 6 && lng >= -76 && lng <= -73) {
+          return { lat, lng };
+        }
+      }
+      
+      // Si las coordenadas están en EPSG:3857 (x,y muy grandes)
+      if (geometry?.x && geometry?.y) {
+        const x = geometry.x;
+        const y = geometry.y;
+        
+        // Si son coordenadas EPSG:3857 (valores grandes, millones)
+        if (Math.abs(x) > 1000000 || Math.abs(y) > 1000000) {
+          // Conversión aproximada EPSG:3857 → WGS84
+          const lon = (x * 180) / 20037508.34;
+          const lat = (Math.atan(Math.exp(y * Math.PI / 20037508.34)) * 360 / Math.PI) - 90;
+          
+          // Ajustar para Bogotá (aproximación)
+          const latAjustada = lat + 0.1; // Pequeño ajuste
+          const lonAjustada = lon - 0.1;
+          
+          if (latAjustada >= 4 && latAjustada <= 5 && lonAjustada >= -74.5 && lonAjustada <= -73.5) {
+            return { lat: latAjustada, lng: lonAjustada };
+          }
+        }
+      }
+      
+      // Si llegamos aquí, usar coordenadas por defecto de Bogotá
+      console.warn('⚠️ Coordenadas no válidas, usando centro de Bogotá');
+      return { lat: 4.60971, lng: -74.08175 };
+      
+    } catch (error) {
+      console.error('❌ Error transformando coordenadas:', error);
+      return { lat: 4.60971, lng: -74.08175 };
     }
+  };
+
+  // BUSCAR EN MÚLTIPLES SERVICIOS ARCGIS
+  const buscarEnArcGIS = async (termino) => {
+    const servicios = [
+      {
+        nombre: 'Hospitales',
+        url: `https://services1.arcgis.com/J5ltM0ovtzXUbp7B/ArcGIS/rest/services/IPS/FeatureServer/0/query?returnGeometry=true&outFields=Nombre,Dirección,LocNombre&f=json&where=UPPER(Nombre)%20LIKE%20%27%25${termino.toUpperCase()}%25%27&resultRecordCount=10`,
+        campoNombre: 'Nombre',
+        campoTipo: '🏥 Hospital/Clínica',
+        campoDireccion: 'Dirección',
+        campoLocalidad: 'LocNombre',
+        esPoligono: false
+      },
+      {
+        nombre: 'Universidades',
+        url: `https://services1.arcgis.com/J5ltM0ovtzXUbp7B/ArcGIS/rest/services/Universidad/FeatureServer/0/query?returnGeometry=true&outFields=SINNOMBRE,SINDIRECCI&f=json&where=UPPER(SINNOMBRE)%20LIKE%20%27%25${termino.toUpperCase()}%25%27&resultRecordCount=10`,
+        campoNombre: 'SINNOMBRE',
+        campoTipo: '🎓 Universidad',
+        campoDireccion: 'SINDIRECCI',
+        esPoligono: false
+      },
+      {
+        nombre: 'Parques',
+        url: `https://services1.arcgis.com/J5ltM0ovtzXUbp7B/ArcGIS/rest/services/parquesyescenarios/FeatureServer/1/query?returnGeometry=true&outFields=NOMBRE_PAR,LOCNOMBRE&f=json&where=UPPER(NOMBRE_PAR)%20LIKE%20%27%25${termino.toUpperCase()}%25%27&resultRecordCount=10`,
+        campoNombre: 'NOMBRE_PAR',
+        campoTipo: '🌳 Parque',
+        campoLocalidad: 'LOCNOMBRE',
+        esPoligono: true
+      },
+      {
+        nombre: 'Barrios',
+        url: `https://services1.arcgis.com/J5ltM0ovtzXUbp7B/ArcGIS/rest/services/sectorcatastral/FeatureServer/0/query?returnGeometry=true&outFields=SCANOMBRE&f=json&where=UPPER(SCANOMBRE)%20LIKE%20%27%25${termino.toUpperCase()}%25%27&resultRecordCount=10`,
+        campoNombre: 'SCANOMBRE',
+        campoTipo: '🏘️ Barrio/UPZ',
+        esPoligono: true
+      },
+      {
+        nombre: 'Plazas de Mercado',
+        url: `https://services1.arcgis.com/J5ltM0ovtzXUbp7B/ArcGIS/rest/services/Plaza_Mercado/FeatureServer/0/query?returnGeometry=true&outFields=NOMBRE,DIRECCION&f=json&where=UPPER(NOMBRE)%20LIKE%20%27%25${termino.toUpperCase()}%25%27&resultRecordCount=10`,
+        campoNombre: 'NOMBRE',
+        campoTipo: '🛒 Plaza de Mercado',
+        campoDireccion: 'DIRECCION',
+        esPoligono: false
+      },
+      {
+        nombre: 'Paraderos SITP',
+        url: `https://services1.arcgis.com/J5ltM0ovtzXUbp7B/ArcGIS/rest/services/ParaderosSITP/FeatureServer/0/query?returnGeometry=true&outFields=nombre,direccion_,LocNombre&f=json&where=UPPER(nombre)%20LIKE%20%27%25${termino.toUpperCase()}%25%27&resultRecordCount=10`,
+        campoNombre: 'nombre',
+        campoTipo: '🚏 Paradero SITP',
+        campoDireccion: 'direccion_',
+        campoLocalidad: 'LocNombre',
+        esPoligono: false
+      }
+    ];
+
+    const todosResultados = [];
+    const promesas = servicios.map(servicio => 
+      fetch(servicio.url)
+        .then(r => r.json())
+        .then(datos => ({ datos, servicio }))
+        .catch(() => ({ datos: { features: [] }, servicio }))
+    );
+
+    const resultados = await Promise.all(promesas);
+
+    resultados.forEach(({ datos, servicio }) => {
+      if (datos.features && datos.features.length > 0) {
+        datos.features.forEach(feature => {
+          const coords = transformarCoordenadasArcGIS(feature.geometry, servicio.esPoligono);
+          
+          if (coords) {
+            const resultado = {
+              nombre: feature.attributes[servicio.campoNombre] || 'Sin nombre',
+              tipo: servicio.campoTipo,
+              latitud: coords.lat,
+              longitud: coords.lng,
+              fuente: servicio.nombre,
+              datosCompletos: feature.attributes,
+              esDireccion: false
+            };
+
+            if (servicio.campoDireccion && feature.attributes[servicio.campoDireccion]) {
+              resultado.direccion = feature.attributes[servicio.campoDireccion];
+            }
+            if (servicio.campoLocalidad && feature.attributes[servicio.campoLocalidad]) {
+              resultado.localidad = feature.attributes[servicio.campoLocalidad];
+            }
+
+            todosResultados.push(resultado);
+          }
+        });
+      }
+    });
+
+    return todosResultados;
+  };
+
+  // FUNCIÓN PRINCIPAL DE BÚSQUEDA
+  const buscarDireccion = async () => {
+    if (!busqueda.trim()) return;
+    
+    console.log('🔍 Iniciando búsqueda:', busqueda);
+    setBuscando(true);
+    
+    try {
+      // 1. PRIMERO: Verificar si es una dirección
+      if (esDireccionBogota(busqueda)) {
+        console.log('📍 Detectado como dirección, geocodificando...');
+        const direccionResultado = await geocodificarDireccion(busqueda);
+        
+        if (direccionResultado) {
+          console.log('✅ Dirección encontrada:', direccionResultado);
+          setResultados([direccionResultado]);
+          
+          // Centrar en la dirección
+          if (mapRef.current) {
+            const nuevaUbicacion = [direccionResultado.latitud, direccionResultado.longitud];
+            setCenter(nuevaUbicacion);
+            setZoom(18);
+            mapRef.current.setView(nuevaUbicacion, 18);
+          }
+          
+          setBuscando(false);
+          return;
+        } else {
+          console.log('⚠️ Dirección no encontrada, buscando como lugar...');
+        }
+      }
+      
+      // 2. SEGUNDO: Buscar en servicios ArcGIS
+      console.log('🔎 Buscando en servicios ArcGIS...');
+      const resultadosArcGIS = await buscarEnArcGIS(busqueda);
+      
+      if (resultadosArcGIS.length > 0) {
+        console.log(`✅ ${resultadosArcGIS.length} resultados encontrados en ArcGIS`);
+        setResultados(resultadosArcGIS);
+        
+        // Centrar en el primer resultado
+        if (mapRef.current && resultadosArcGIS[0]) {
+          const primerResultado = resultadosArcGIS[0];
+          const nuevaUbicacion = [primerResultado.latitud, primerResultado.longitud];
+          setCenter(nuevaUbicacion);
+          setZoom(16);
+          mapRef.current.setView(nuevaUbicacion, 16);
+        }
+      } else {
+        console.log('❌ No se encontraron resultados');
+        setResultados([]);
+        alert(`No se encontraron resultados para: "${busqueda}"\n\nPrueba con:\n• Nombres de lugares (hospital, parque, universidad)\n• Direcciones completas (KR 30 25 90)\n• Barrios (Chapinero, Teusaquillo)`);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error en búsqueda:', error);
+      setResultados([]);
+      alert('Error al conectar con los servicios de búsqueda');
+    } finally {
+      setBuscando(false);
+    }
+  };
+
+  // OBTENER MI UBICACIÓN
+  const obtenerMiUbicacion = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (posicion) => {
+          const nuevaUbicacion = [posicion.coords.latitude, posicion.coords.longitude];
+          setMiUbicacion(nuevaUbicacion);
+          setCenter(nuevaUbicacion);
+          setZoom(16);
+          
+          if (mapRef.current) {
+            mapRef.current.setView(nuevaUbicacion, 16);
+          }
+        },
+        (error) => {
+          alert('No se pudo obtener tu ubicación. Asegúrate de dar permisos.');
+          console.error('Error geolocalización:', error);
+        }
+      );
+    } else {
+      alert('Tu navegador no soporta geolocalización');
+    }
+  };
+
+  // Controladores de zoom
+  const zoomIn = () => {
+    if (mapRef.current) {
+      mapRef.current.zoomIn();
+      setZoom(mapRef.current.getZoom());
+    }
+  };
+
+  const zoomOut = () => {
+    if (mapRef.current) {
+      mapRef.current.zoomOut();
+      setZoom(mapRef.current.getZoom());
+    }
+  };
+
+  // Manejar selección de sugerencia
+  const handleSeleccionarSugerencia = (sugerencia) => {
+    if (sugerencia.latitud && sugerencia.longitud && mapRef.current) {
+      const newCenter = [sugerencia.latitud, sugerencia.longitud];
+      setCenter(newCenter);
+      setZoom(sugerencia.esDireccion ? 18 : 16);
+      mapRef.current.setView(newCenter, sugerencia.esDireccion ? 18 : 16);
+      
+      setBusqueda(sugerencia.nombre);
+      setResultados([sugerencia]);
+    }
+  };
+
+  // Función para manejar el click en "Cómo llegar"
+  const handleComoLlegar = (destino) => {
+    setDestinoRuteo(destino);
+    setMostrarPanelRuteo(true);
+  };
+
+  // Función para calcular la ruta (llamar a la API)
+  // REEMPLAZA solo la función calcularRuta en Mapa.js:
+
+
+// REEMPLAZA la función calcularRuta con esta versión CORRECTA:
+
+// REEMPLAZA la función calcularRuta con esta versión CORRECTA:
+
+const calcularRuta = async (datosRuta) => {
+  console.log('📍 Datos para calcular ruta:', datosRuta);
+  
+  try {
+    // Validar datos
+    if (!datosRuta || !destinoRuteo) {
+      alert('Faltan datos para calcular la ruta');
+      return { success: false };
+    }
+    
+    // Preparamos los puntos de origen y destino
+    let origenCoords;
+    const origen = datosRuta.origen || '';
+    
+    // Verificar si el origen es válido
+    if (!origen.trim()) {
+      alert('Por favor selecciona o ingresa un origen');
+      return { success: false };
+    }
+    
+    // DEBUG: Ver qué datos tenemos
+    console.log('🔍 DEBUG calcularRuta:', {
+      origenTexto: origen,
+      tieneSugerencia: !!datosRuta.sugerenciaSeleccionada,
+      sugerencia: datosRuta.sugerenciaSeleccionada,
+      origenEsMiUbicacion: datosRuta.origenEsMiUbicacion
+    });
+    
+    // 1. CASO: Tenemos una sugerencia seleccionada con coordenadas
+    if (datosRuta.sugerenciaSeleccionada && 
+        datosRuta.sugerenciaSeleccionada.latitud && 
+        datosRuta.sugerenciaSeleccionada.longitud) {
+      
+      console.log('📍 Usando sugerencia seleccionada:', datosRuta.sugerenciaSeleccionada);
+      origenCoords = [
+        datosRuta.sugerenciaSeleccionada.latitud, 
+        datosRuta.sugerenciaSeleccionada.longitud
+      ];
+      console.log('✅ Coordenadas de sugerencia:', origenCoords);
+    }
+    // 2. CASO: Mi ubicación actual
+    else if (datosRuta.origenEsMiUbicacion && miUbicacion) {
+      console.log('📍 Usando ubicación actual del usuario:', miUbicacion);
+      origenCoords = miUbicacion;
+    } 
+    // 3. CASO: Centro de Bogotá
+    else if (origen.includes('Centro de Bogotá') || origen.includes('🏙️') || origen.includes('Centro Bogotá')) {
+      console.log('📍 Usando centro de Bogotá');
+      origenCoords = [4.60971, -74.08175];
+    }
+    // 4. CASO: Es una dirección escrita por el usuario (NO una sugerencia con paréntesis)
+    else if (!origen.includes('(') && !origen.includes(')')) {
+      console.log('📍 Geocodificando dirección del usuario:', origen);
+      
+      // Primero intentar geocodificar
+      const geoResult = await geocodificarDireccion(origen);
+      if (geoResult) {
+        origenCoords = [geoResult.latitud, geoResult.longitud];
+        console.log('✅ Dirección geocodificada:', origenCoords);
+      } else {
+        // Si falla, buscar como lugar en ArcGIS
+        console.log('⚠️ No se pudo geocodificar, buscando como lugar...');
+        const resultadosBusqueda = await buscarEnArcGIS(origen);
+        if (resultadosBusqueda.length > 0) {
+          const primerResultado = resultadosBusqueda[0];
+          origenCoords = [primerResultado.latitud, primerResultado.longitud];
+          console.log('✅ Lugar encontrado:', primerResultado.nombre, origenCoords);
+        } else {
+          alert(`No se encontró: "${origen}"\n\nPrueba con:\n• Nombres exactos: "Hospital San Carlos"\n• Direcciones: "KR 30 25 90"\n• Lugares: "universidad", "parque"`);
+          return { success: false };
+        }
+      }
+    }
+    // 5. CASO: Es una sugerencia en formato "Nombre (Tipo)" pero no tenemos las coordenadas
+    else {
+      console.log('🔍 Es una sugerencia en formato texto, extrayendo nombre...');
+      
+      // Extraer solo el nombre (antes del paréntesis)
+      const nombreLimpio = origen.split('(')[0].trim();
+      console.log('🔍 Buscando por nombre limpio:', nombreLimpio);
+      
+      // Buscar en ArcGIS
+      const resultadosBusqueda = await buscarEnArcGIS(nombreLimpio);
+      if (resultadosBusqueda.length > 0) {
+        const primerResultado = resultadosBusqueda[0];
+        origenCoords = [primerResultado.latitud, primerResultado.longitud];
+        console.log('✅ Lugar encontrado por nombre:', primerResultado.nombre, origenCoords);
+      } else {
+        // Intentar con geocodificación
+        const geoResult = await geocodificarDireccion(nombreLimpio);
+        if (geoResult) {
+          origenCoords = [geoResult.latitud, geoResult.longitud];
+          console.log('✅ Geocodificado por nombre:', origenCoords);
+        } else {
+          alert(`No se pudo encontrar: "${nombreLimpio}"`);
+          return { success: false };
+        }
+      }
+    }
+    
+    // Asegurar que el destino tiene coordenadas correctas
+    let destinoCoords = [destinoRuteo.latitud, destinoRuteo.longitud];
+    
+    // Si las coordenadas del destino parecen incorrectas, geocodificar
+    if (Math.abs(destinoCoords[1]) > 74.2) { // Longitud muy al occidente (fuera de Bogotá)
+      console.log('⚠️ Coordenadas destino sospechosas, geocodificando...');
+      const geoDestino = await geocodificarDireccion(destinoRuteo.nombre || destinoRuteo.direccion || destinoRuteo.nombre);
+      if (geoDestino) {
+        destinoCoords = [geoDestino.latitud, geoDestino.longitud];
+        console.log('✅ Destino geocodificado:', destinoCoords);
+      } else {
+        alert('No se pudo encontrar coordenadas válidas para el destino');
+        return { success: false };
+      }
+    }
+    
+    // Validar coordenadas (Bogotá está entre lat 4-5, lng -75 a -73)
+    if (!origenCoords || !destinoCoords) {
+      alert('No se pudieron obtener coordenadas válidas');
+      return { success: false };
+    }
+    
+    if (origenCoords[0] < 4 || origenCoords[0] > 5 ||
+        destinoCoords[0] < 4 || destinoCoords[0] > 5 ||
+        origenCoords[1] > -73 || origenCoords[1] < -75 ||
+        destinoCoords[1] > -73 || destinoCoords[1] < -75) {
+      console.error('❌ Coordenadas fuera de Bogotá:', { origenCoords, destinoCoords });
+      alert('Las coordenadas están fuera del área de Bogotá');
+      return { success: false };
+    }
+    
+    // Construir URL para la API de ruteo
+    const transporte = datosRuta.transporte || 'car';
+    const url = `https://catalogopmb.catastrobogota.gov.co/PMBWeb/web/ruteo?vehicle=${transporte}&point=${origenCoords[0]},${origenCoords[1]}&point=${destinoCoords[0]},${destinoCoords[1]}&type=json&locale=es&points_encoded=false&elevation=true&ch.disable=true`;
+    
+    console.log('📍 Calculando ruta:', url);
+    
+    const respuesta = await fetch(url);
+    const datos = await respuesta.json();
+    
+    console.log('📍 Respuesta de la API de ruteo:', datos);
+    
+    if (datos.status === true && datos.response?.paths?.length > 0) {
+      // Guardar la ruta calculada
+      const rutaData = datos.response.paths[0];
+      setRutaCalculada({
+        ...rutaData,
+        origen: origenCoords,
+        destino: destinoCoords,
+        transporte: transporte,
+        url: url
+      });
+      
+      console.log('✅ Ruta calculada exitosamente:', rutaData);
+      
+      // Mostrar mensaje de éxito
+      const distanciaKm = (rutaData.distance / 1000).toFixed(1);
+      const tiempoMin = Math.round(rutaData.time / 60000);
+      
+      // Centrar el mapa en la ruta
+      if (mapRef.current) {
+        // Calcular el centro entre origen y destino
+        const centroLat = (origenCoords[0] + destinoCoords[0]) / 2;
+        const centroLng = (origenCoords[1] + destinoCoords[1]) / 2;
+        mapRef.current.setView([centroLat, centroLng], 14);
+      }
+      
+      alert(`✅ ¡Ruta calculada exitosamente!\n\n📏 Distancia: ${distanciaKm} km\n⏱️ Tiempo estimado: ${tiempoMin} minutos\n\nLa ruta se mostrará en el mapa en color azul.`);
+      
+      return { 
+        success: true, 
+        ruta: rutaData,
+        distancia: distanciaKm,
+        tiempo: tiempoMin
+      };
+    } else {
+      console.error('❌ Error API:', datos);
+      alert('No se pudo calcular la ruta. Intenta con otra ubicación o transporte.');
+      return { success: false };
+    }
+    
+  } catch (error) {
+    console.error('❌ Error calculando ruta:', error);
+    alert('Error al conectar con el servicio de rutas. Verifica tu conexión a internet.');
+    return { success: false };
+  }
+};
+
+
+
+
+
+
+
+
+
+
+  // Agregar la función global para que los popups puedan llamarla
+  useEffect(() => {
+    window.iniciarRuteo = handleComoLlegar;
+    return () => {
+      window.iniciarRuteo = null;
+    };
+  }, []);
+
+  // Cambiar tipo de mapa
+  const cambiarMapa = (tipo) => {
+    setTipoMapa(tipo);
+  };
+
+  // Función para obtener el icono según el tipo
+  const getIcono = (tipo) => {
+    if (tipo.includes('Hospital')) return '🏥';
+    if (tipo.includes('Universidad')) return '🎓';
+    if (tipo.includes('Parque')) return '🌳';
+    if (tipo.includes('Barrio')) return '🏘️';
+    if (tipo.includes('Mercado')) return '🛒';
+    if (tipo.includes('Paradero')) return '🚏';
+    if (tipo.includes('Dirección')) return '📍';
+    return '📍';
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Mapa y Rutas</h1>
-          <p className="text-gray-600">Descubre las mejores rutas por Bogotá</p>
+    <div className="mapa-container">
+      <Cabecera 
+        busqueda={busqueda}
+        setBusqueda={setBusqueda}
+        buscarDireccion={buscarDireccion}
+        center={center}
+        onSeleccionarSugerencia={handleSeleccionarSugerencia}  
+      />
+
+      {/* ==== OVERLAY SOBRE TODO ==== */}
+      {buscando && (
+        <div className="overlay-carga-global">
+          <div className="spinner-grande"></div>
+          <p>Buscando en servicios de Bogotá...</p>
+          <small>Hospitales • Universidades • Parques • Barrios • Mercados • Paraderos</small>
         </div>
+      )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Sidebar */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Search */}
-            <Card>
-              <CardContent className="p-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <Input
-                    placeholder="Buscar lugares..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="w-full mt-3"
-                  onClick={() => setShowFilters(!showFilters)}
-                >
-                  <Filter className="w-4 h-4 mr-2" />
-                  Filtros
-                  {showFilters ? <ChevronUp className="w-4 h-4 ml-2" /> : <ChevronDown className="w-4 h-4 ml-2" />}
-                </Button>
-                {showFilters && (
-                  <div className="mt-3 space-y-2">
-                    <Button variant="outline" size="sm" className="w-full justify-start">
-                      Ciclorrutas
-                    </Button>
-                    <Button variant="outline" size="sm" className="w-full justify-start">
-                      Comercios
-                    </Button>
-                    <Button variant="outline" size="sm" className="w-full justify-start">
-                      Estaciones de carga
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Suggested Routes */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Rutas Sugeridas</CardTitle>
-              </CardHeader>
-              <CardContent className="p-4 space-y-3">
-                {suggestedRoutes.map((route) => (
-                  <div 
-                    key={route.id}
-                    className={`p-3 border rounded-lg cursor-pointer transition-colors ${
-                      selectedRoute?.id === route.id ? 'border-green-500 bg-green-50' : 'hover:bg-gray-50'
-                    }`}
-                    onClick={() => setSelectedRoute(route)}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="font-medium text-sm">{route.from} → {route.to}</p>
-                      <Badge className={getDifficultyColor(route.difficulty)}>
-                        {route.difficulty}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
-                      <span>{route.distance}</span>
-                      <span>{route.time}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center space-x-1">
-                        <Star className="w-3 h-3 text-yellow-500 fill-current" />
-                        <span>{route.rating}</span>
-                      </div>
-                      <span>{route.users} usuarios</span>
-                    </div>
-                    <div className="mt-2">
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span>Ciclorrutas</span>
-                        <span>{route.bikelanePct}%</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-1">
-                        <div 
-                          className="bg-green-500 h-1 rounded-full" 
-                          style={{ width: `${route.bikelanePct}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-
-            {/* Active Users */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center">
-                  <Users className="w-5 h-5 mr-2 text-green-600" />
-                  Usuarios Activos
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-4 space-y-3">
-                {activeUsers.map((user) => (
-                  <div key={user.id} className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="relative">
-                        <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                          <span className="text-lg">{getVehicleIcon(user.vehicle)}</span>
-                        </div>
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{user.name}</p>
-                        <p className="text-xs text-gray-600">{user.location}</p>
-                      </div>
-                    </div>
-                    <Button variant="outline" size="sm">
-                      Seguir
-                    </Button>
-                  </div>
-                ))}
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="w-full"
-                  onClick={() => onViewChange('social')}
-                >
-                  Ver Todos
-                </Button>
-              </CardContent>
-            </Card>
+      <div className="contenedor-principal">
+        <ControlesMapa
+          zoomIn={zoomIn}
+          zoomOut={zoomOut}
+          obtenerMiUbicacion={obtenerMiUbicacion}
+          cambiarMapa={cambiarMapa}
+          tipoMapa={tipoMapa}
+          zoom={zoom}
+          miUbicacion={miUbicacion}
+          buscando={buscando}
+        />
+  
+        <div className="mapa-area">
+          <MapContainer
+  center={center}
+  zoom={zoom}
+  ref={mapRef}
+  zoomControl={false}
+  className="leaflet-container"
+  whenCreated={(mapInstance) => {
+    mapRef.current = mapInstance;
+  }}
+>
+  <TileLayer
+    url={mapasBase[tipoMapa].url}
+    attribution={mapasBase[tipoMapa].atribucion}
+  />
+  
+  {/* Marcador del centro */}
+  {!miUbicacion && !resultados.length && (
+    <Marker position={center}>
+      <Popup>Centro de Bogotá</Popup>
+    </Marker>
+  )}
+  
+  {/* Marcador de MI ubicación */}
+  {miUbicacion && (
+    <Marker position={miUbicacion}>
+      <Popup>
+        <strong>¡Estás aquí!</strong><br/>
+        Lat: {miUbicacion[0].toFixed(6)}<br/>
+        Lng: {miUbicacion[1].toFixed(6)}
+      </Popup>
+    </Marker>
+  )}
+  
+  {/* RUTA CALCULADA - NUEVO */}
+  {rutaCalculada && rutaCalculada.points?.coordinates && (
+    <Polyline
+      positions={rutaCalculada.points.coordinates.map(coord => [coord[1], coord[0]])}
+      color={rutaCalculada.transporte === 'car' ? '#3498db' : 
+             rutaCalculada.transporte === 'bike' ? '#2ecc71' : '#9b59b6'}
+      weight={6}
+      opacity={0.8}
+    >
+      <Popup>
+        <div className="popup-ruta">
+          <strong>📏 Ruta calculada</strong><br/>
+          <small>Distancia: {(rutaCalculada.distance / 1000).toFixed(1)} km</small><br/>
+          <small>Tiempo: {Math.round(rutaCalculada.time / 60000)} min</small><br/>
+          <small>Transporte: {
+            rutaCalculada.transporte === 'car' ? '🚗 Auto' : 
+            rutaCalculada.transporte === 'bike' ? '🚲 Bicicleta' : '🚶 Caminando'
+          }</small>
+        </div>
+      </Popup>
+    </Polyline>
+  )}
+  
+  {/* Resultados de búsqueda */}
+  {resultados.slice(0, 15).map((resultado, index) => (
+    <Marker 
+      key={index} 
+      position={[resultado.latitud, resultado.longitud]}
+    >
+      <Popup>
+        <div className="popup-contenido">
+          <strong>{resultado.nombre}</strong><br/>
+          <small className="popup-tipo">{resultado.tipo}</small>
+          
+          {resultado.direccion && (
+            <div className="popup-direccion">
+              <strong>Dirección:</strong> {resultado.direccion}
+            </div>
+          )}
+          
+          {resultado.localidad && (
+            <div className="popup-localidad">
+              <strong>Localidad:</strong> {resultado.localidad}
+            </div>
+          )}
+          
+          {resultado.barrio && (
+            <div className="popup-barrio">
+              <strong>Barrio:</strong> {resultado.barrio}
+            </div>
+          )}
+          
+          {/* BOTÓN "CÓMO LLEGAR" */}
+          <div className="popup-acciones">
+            <button 
+              className="btn-como-llegar"
+              onClick={(e) => {
+                e.stopPropagation();
+                const destino = {
+                  nombre: resultado.nombre,
+                  latitud: resultado.latitud,
+                  longitud: resultado.longitud,
+                  direccion: resultado.direccion || resultado.nombre,
+                  tipo: resultado.tipo
+                };
+                handleComoLlegar(destino);
+              }}
+            >
+              {getIcono(resultado.tipo)} ¿Cómo llegar?
+            </button>
           </div>
-
-          {/* Map Area */}
-          <div className="lg:col-span-3">
-            <Card className="h-[600px]">
-              <CardContent className="p-0 h-full">
-                {/* Simulated Map */}
-                <div className="relative w-full h-full bg-gradient-to-br from-green-100 to-blue-100 rounded-lg overflow-hidden">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="text-center space-y-4">
-                      <MapPin className="w-16 h-16 text-green-600 mx-auto" />
-                      <div>
-                        <h3 className="text-xl font-bold text-gray-800">Mapa Interactivo de Bogotá</h3>
-                        <p className="text-gray-600">Aquí se mostraría el mapa con:</p>
-                        <ul className="text-sm text-gray-500 mt-2 space-y-1">
-                          <li>• Ciclorrutas disponibles</li>
-                          <li>• Ubicación de usuarios activos</li>
-                          <li>• Puntos de interés y comercios</li>
-                          <li>• Estaciones de carga</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Map Points Simulation */}
-                  {mapPoints.map((point) => (
-                    <div
-                      key={point.id}
-                      className="absolute w-8 h-8 bg-green-600 rounded-full flex items-center justify-center cursor-pointer shadow-lg transform hover:scale-110 transition-transform"
-                      style={{
-                        left: `${20 + (point.id * 15)}%`,
-                        top: `${30 + (point.id * 10)}%`
-                      }}
-                    >
-                      <div className="w-4 h-4 bg-white rounded-full flex items-center justify-center">
-                        <span className="text-xs text-green-600 font-bold">RP</span>
-                      </div>
-                      <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-black text-white text-xs px-2 py-1 rounded opacity-0 hover:opacity-100 transition-opacity whitespace-nowrap">
-                        {point.name}
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Route Line Simulation */}
-                  {selectedRoute && (
-                    <div className="absolute inset-0 pointer-events-none">
-                      <svg className="w-full h-full">
-                        <path
-                          d="M 100 200 Q 200 100 400 300"
-                          stroke="rgb(34, 197, 94)"
-                          strokeWidth="4"
-                          fill="none"
-                          strokeDasharray="8,4"
-                          className="animate-pulse"
-                        />
-                      </svg>
-                    </div>
-                  )}
-                </div>
-
-                {/* Map Controls */}
-                <div className="absolute top-4 right-4 space-y-2">
-                  <Button size="sm" className="bg-white text-gray-700 shadow-lg">
-                    <Navigation className="w-4 h-4" />
-                  </Button>
-                  <Button size="sm" className="bg-white text-gray-700 shadow-lg">
-                    <Zap className="w-4 h-4" />
-                  </Button>
-                </div>
-
-                {/* Route Info Panel */}
-                {selectedRoute && (
-                  <div className="absolute bottom-4 left-4 right-4 bg-white rounded-lg shadow-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-bold">{selectedRoute.from} → {selectedRoute.to}</h3>
-                      <Button size="sm" className="bg-green-600 text-white">
-                        <Route className="w-4 h-4 mr-2" />
-                        Iniciar Ruta
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-4 text-sm">
-                      <div className="text-center">
-                        <p className="text-gray-600">Distancia</p>
-                        <p className="font-medium">{selectedRoute.distance}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-gray-600">Tiempo Est.</p>
-                        <p className="font-medium">{selectedRoute.time}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-gray-600">Calificación</p>
-                        <div className="flex items-center justify-center space-x-1">
-                          <Star className="w-4 h-4 text-yellow-500 fill-current" />
-                          <span className="font-medium">{selectedRoute.rating}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          
+          <div className="popup-coordenadas">
+            <small>Lat: {resultado.latitud.toFixed(6)}</small><br/>
+            <small>Lng: {resultado.longitud.toFixed(6)}</small>
           </div>
         </div>
+      </Popup>
+    </Marker>
+  ))}
+</MapContainer>
+        </div>
+
+        <PanelResultados 
+          resultados={resultados}
+          mapRef={mapRef}
+          buscando={buscando}
+        />
       </div>
+
+      {/* PANEL DE RUTEO */}
+      {mostrarPanelRuteo && (
+        <PanelRuteo
+          destino={destinoRuteo}
+          miUbicacion={miUbicacion}
+          onClose={() => setMostrarPanelRuteo(false)}
+          onCalcularRuta={calcularRuta}
+        />
+      )}
     </div>
   );
 }
+

@@ -1,0 +1,312 @@
+/* Mapa.css - Agrega estas clases al final del archivo */
+
+/* Contenedor principal del mapa */
+.mapa-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  background: #f5f5f5;
+}
+
+.contenedor-principal {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.mapa-area {
+  flex: 1;
+  position: relative;
+}
+
+/* Fix para Leaflet container */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* Estilos para popups */
+.popup-contenido {
+  min-width: 200px;
+  max-width: 300px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+}
+
+.popup-tipo {
+  display: inline-block;
+  background: #e3f2fd;
+  color: #1976d2;
+  padding: 2px 8px;
+  border-radius: 12px;
+  margin: 5px 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.popup-direccion,
+.popup-localidad,
+.popup-barrio {
+  margin: 4px 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.popup-direccion strong,
+.popup-localidad strong,
+.popup-barrio strong {
+  color: #555;
+}
+
+.popup-tipo-direccion {
+  margin-top: 8px;
+  color: #666;
+  font-size: 11px;
+  font-style: italic;
+  padding-top: 4px;
+  border-top: 1px dashed #eee;
+}
+
+.popup-coordenadas {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+  color: #888;
+  font-size: 11px;
+}
+
+/* Estados de búsqueda */
+.buscando-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .contenedor-principal {
+    flex-direction: column;
+  }
+  
+  .mapa-area {
+    height: 60vh;
+  }
+  
+  .popup-contenido {
+    min-width: 180px;
+    max-width: 250px;
+  }
+}
+
+/* Scrollbar personalizado para resultados */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Mapa.css - Agrega al final */
+.overlay-carga-global {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.95);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.spinner-grande {
+  width: 60px;
+  height: 60px;
+  border: 5px solid #f3f3f3;
+  border-top: 5px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 20px;
+}
+
+.overlay-carga-global p {
+  font-size: 18px;
+  color: #333;
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+
+.overlay-carga-global small {
+  font-size: 14px;
+  color: #666;
+  text-align: center;
+  max-width: 300px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ======================================= */
+/* ESTILOS PARA POPUP MEJORADO Y RUTAS */
+/* ======================================= */
+
+.popup-contenido {
+  min-width: 250px;
+  max-width: 350px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  line-height: 1.4;
+}
+
+.popup-acciones {
+  margin: 12px 0;
+  padding-top: 12px;
+  border-top: 1px dashed #eee;
+}
+
+.btn-como-llegar {
+  width: 100%;
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-como-llegar:hover {
+  background: linear-gradient(135deg, #2980b9, #2573a7);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+
+/* Estilos para panel de ruteo (lo crearemos después) */
+.panel-ruteo-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 20px;
+}
+
+.panel-ruteo-contenido {
+  background: white;
+  border-radius: 15px;
+  width: 100%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 15px 50px rgba(0, 0, 0, 0.3);
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive para popups */
+@media (max-width: 768px) {
+  .popup-contenido {
+    min-width: 200px;
+    max-width: 280px;
+  }
+  
+  .btn-como-llegar {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+}
+
+/* Estilos para el popup de ruta */
+.popup-ruta {
+  min-width: 200px;
+}
+
+.popup-ruta strong {
+  color: #2c3e50;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.popup-ruta small {
+  display: block;
+  margin: 3px 0;
+  color: #7f8c8d;
+}
+
+/* Estilos para las líneas de ruta */
+.leaflet-interactive {
+  cursor: pointer;
+}
+
+/* Color de las rutas según transporte */
+.ruta-auto {
+  stroke: #3498db;
+}
+
+.ruta-bici {
+  stroke: #2ecc71;
+}
+
+.ruta-pie {
+  stroke: #9b59b6;
+}

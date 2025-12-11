@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { fetchUserProfile } from "../profile-api";
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -22,19 +23,43 @@ import {
   Heart
 } from 'lucide-react';
 
-export function UserProfile({ user}) {
+const VEHICLE_API = "http://localhost:8082/vehicles"; // POST para crear
+const VEHICLES_API = "http://localhost:8082/users/profile/my-profile/vehicles"; // GET lista
+
+export function UserProfile() {
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
+
   const [formData, setFormData] = useState({
-    firstName: user?.firstName || '',
-    lastName: user?.lastName || '',
-    email: user?.email || '',
-    phone: '+57 300 123 4567',
-    vehicleType: user?.vehicleType || 'scooter',
-    bio: 'Amante de la movilidad sostenible en Bogotá 🚲⚡',
+    name: '',
+    email: '',
+    phone: '+',
+    vehicleType: 'scooter',
+    adress: '',
     location: 'Bogotá, Colombia',
-    membershipNumber: user?.membershipNumber || 'RP2024001'
+    membershipNumber: '',
+    bio: ''
   });
+
+  const [loading, setLoading] = useState(true);
+
+  // estado para el formulario de vehículo (añadir)
+  const [vehicleData, setVehicleData] = useState({
+    brand: '',
+    color: '',
+    type: 'SCOOTER',
+  });
+
+  const [vehicleStatus, setVehicleStatus] = useState({
+    loading: false,
+    error: '',
+    success: '',
+  });
+
+  // 🚗 lista de vehículos del usuario
+  const [vehicles, setVehicles] = useState([]);
+  const [vehiclesLoading, setVehiclesLoading] = useState(true);
+  const [vehiclesError, setVehiclesError] = useState('');
 
   const stats = [
     { label: 'Rutas Completadas', value: '127', icon: MapPin, color: 'text-green-600' },
@@ -112,7 +137,7 @@ export function UserProfile({ user}) {
   };
 
   const handleSave = () => {
-    // Aquí iría la lógica para guardar los cambios
+    // Aquí iría la lógica para guardar los cambios (PUT/PATCH al backend)
     setIsEditing(false);
   };
 
@@ -134,6 +159,141 @@ export function UserProfile({ user}) {
       default: return <User className="w-4 h-4 text-gray-600" />;
     }
   };
+
+  // 👉 Traer el perfil del backend
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const profile = await fetchUserProfile();
+        setFormData(prev => ({
+          ...prev,
+          name: profile.name || '',
+          email: profile.authUserId || '', // ajusta si tu backend devuelve "email"
+          phone: profile.phone || '+',
+          adress: profile.address || '',
+          location: 'Bogotá, Colombia',
+        }));
+      } catch (err) {
+        console.error("Error cargando perfil:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProfile();
+  }, []);
+
+  // 👉 Traer vehículos del usuario
+  useEffect(() => {
+    const loadVehicles = async () => {
+      try {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+          throw new Error('No se encontró el token de autenticación');
+        }
+
+        const resp = await fetch(VEHICLES_API, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json',
+          },
+        });
+
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => '');
+          throw new Error(text || `Error HTTP ${resp.status}`);
+        }
+
+        const data = await resp.json(); // espero que sea un array
+        setVehicles(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error('Error cargando vehículos:', err);
+        setVehiclesError(err.message || 'No se pudieron cargar los vehículos');
+      } finally {
+        setVehiclesLoading(false);
+      }
+    };
+
+    loadVehicles();
+  }, []);
+
+  // 🛴 handlers para el formulario de vehículo (añadir)
+  const handleVehicleChange = (field, value) => {
+    setVehicleData(prev => ({ ...prev, [field]: value }));
+    setVehicleStatus(prev => ({ ...prev, error: '', success: '' }));
+  };
+
+  const handleVehicleSubmit = async (e) => {
+    e.preventDefault();
+    setVehicleStatus({ loading: true, error: '', success: '' });
+
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        throw new Error('No se encontró el token de autenticación');
+      }
+
+      const resp = await fetch(VEHICLE_API, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          brand: vehicleData.brand,
+          color: vehicleData.color,
+          type: vehicleData.type, // "SCOOTER"
+        }),
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '');
+        throw new Error(text || `Error HTTP ${resp.status}`);
+      }
+
+      const newVehicle = await resp.json().catch(() => null);
+
+      setVehicleStatus({
+        loading: false,
+        error: '',
+        success: 'Vehículo guardado correctamente ✅',
+      });
+
+      setVehicleData({ brand: '', color: '', type: 'SCOOTER' });
+
+      // opcional: actualizar lista en pantalla sin volver a llamar al backend
+      if (newVehicle) {
+        setVehicles(prev => [...prev, newVehicle]);
+      }
+    } catch (err) {
+      console.error(err);
+      setVehicleStatus({
+        loading: false,
+        error: err.message || 'No se pudo guardar el vehículo',
+        success: '',
+      });
+    }
+  };
+
+  // Iniciales para el avatar
+  const initials = formData.name
+    ? formData.name
+        .split(' ')
+        .filter(Boolean)
+        .map(p => p[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+    : 'RP';
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p>Cargando perfil...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -170,15 +330,15 @@ export function UserProfile({ user}) {
               Actividad
             </button>
             <button
-              onClick={() => setActiveTab('settings')}
+              onClick={() => setActiveTab('vehicle')}
               className={`flex-1 px-4 py-2 rounded-md transition-colors ${
-                activeTab === 'settings'
+                activeTab === 'vehicle'
                   ? 'bg-green-600 text-white'
                   : 'text-gray-600 hover:text-green-600'
               }`}
             >
               <Settings className="w-4 h-4 inline mr-2" />
-              Configuración
+              añadir vehículo
             </button>
           </div>
         </div>
@@ -191,7 +351,7 @@ export function UserProfile({ user}) {
                 <div className="relative inline-block mb-4">
                   <Avatar className="w-24 h-24 mx-auto">
                     <AvatarFallback className="text-2xl">
-                      {formData.firstName[0]}{formData.lastName[0]}
+                      {initials}
                     </AvatarFallback>
                   </Avatar>
                   <Button
@@ -204,29 +364,23 @@ export function UserProfile({ user}) {
                 </div>
                 
                 <h2 className="text-xl font-bold mb-1">
-                  {formData.firstName} {formData.lastName}
+                  {formData.name || 'Usuario Rola PET'}
                 </h2>
-                <p className="text-gray-600 mb-2">@{formData.firstName.toLowerCase()}_rides</p>
+                <p className="text-gray-600 mb-2">{formData.email}</p>
                 
                 <div className="flex items-center justify-center space-x-2 mb-3">
                   <span className="text-2xl">{getVehicleIcon(formData.vehicleType)}</span>
-                  <Badge className="bg-green-100 text-green-700">
-                    Miembro {formData.membershipNumber}
-                  </Badge>
                 </div>
                 
-                <p className="text-sm text-gray-600 mb-4">{formData.bio}</p>
+                {formData.bio && (
+                  <p className="text-sm text-gray-600 mb-4">{formData.bio}</p>
+                )}
                 
                 <div className="flex items-center justify-center space-x-1 text-sm text-gray-600 mb-4">
                   <MapPin className="w-4 h-4" />
                   <span>{formData.location}</span>
                 </div>
                 
-                <div className="flex items-center justify-center space-x-1 text-sm text-gray-600 mb-6">
-                  <Calendar className="w-4 h-4" />
-                  <span>Miembro desde Nov 2023</span>
-                </div>
-
                 {!isEditing ? (
                   <Button 
                     className="w-full bg-green-600 hover:bg-green-700"
@@ -281,9 +435,9 @@ export function UserProfile({ user}) {
 
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
+            {/* TAB PERFIL */}
             {activeTab === 'profile' && (
               <div className="space-y-6">
-                {/* Edit Form */}
                 {isEditing && (
                   <Card>
                     <CardHeader>
@@ -292,19 +446,20 @@ export function UserProfile({ user}) {
                     <CardContent className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="firstName">Nombre</Label>
+                          <Label htmlFor="name">Nombre</Label>
                           <Input
-                            id="firstName"
-                            value={formData.firstName}
-                            onChange={(e) => handleInputChange('firstName', e.target.value)}
+                            id="name"
+                            value={formData.name}
+                            onChange={(e) => handleInputChange('name', e.target.value)}
                           />
                         </div>
+                        
                         <div className="space-y-2">
-                          <Label htmlFor="lastName">Apellido</Label>
+                          <Label htmlFor="location">Ubicación</Label>
                           <Input
-                            id="lastName"
-                            value={formData.lastName}
-                            onChange={(e) => handleInputChange('lastName', e.target.value)}
+                            id="location"
+                            value={formData.location}
+                            onChange={(e) => handleInputChange('location', e.target.value)}
                           />
                         </div>
                       </div>
@@ -327,12 +482,24 @@ export function UserProfile({ user}) {
                           onChange={(e) => handleInputChange('phone', e.target.value)}
                         />
                       </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="adress">Dirección</Label>
+                        <Input
+                          id="adress"
+                          value={formData.adress}
+                          onChange={(e) => handleInputChange('adress', e.target.value)}
+                        />
+                      </div>
                       
                       <div className="space-y-2">
                         <Label htmlFor="vehicleType">Vehículo Principal</Label>
-                        <Select onValueChange={(value) => handleInputChange('vehicleType', value)}>
+                        <Select
+                          value={formData.vehicleType}
+                          onValueChange={(value) => handleInputChange('vehicleType', value)}
+                        >
                           <SelectTrigger>
-                            <SelectValue placeholder={formData.vehicleType} />
+                            <SelectValue placeholder="Selecciona un vehículo" />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="scooter">Scooter Eléctrico</SelectItem>
@@ -341,21 +508,20 @@ export function UserProfile({ user}) {
                           </SelectContent>
                         </Select>
                       </div>
-                      
+
                       <div className="space-y-2">
-                        <Label htmlFor="bio">Biografía</Label>
+                        <Label htmlFor="bio">Bio</Label>
                         <Input
                           id="bio"
                           value={formData.bio}
                           onChange={(e) => handleInputChange('bio', e.target.value)}
-                          placeholder="Cuéntanos sobre ti..."
+                          placeholder="Cuéntale algo a la comunidad sobre ti"
                         />
                       </div>
                     </CardContent>
                   </Card>
                 )}
 
-                {/* Achievements */}
                 <Card>
                   <CardHeader>
                     <CardTitle>Logros</CardTitle>
@@ -401,6 +567,7 @@ export function UserProfile({ user}) {
               </div>
             )}
 
+            {/* TAB ACTIVIDAD */}
             {activeTab === 'activity' && (
               <Card>
                 <CardHeader>
@@ -430,83 +597,122 @@ export function UserProfile({ user}) {
               </Card>
             )}
 
-            {activeTab === 'settings' && (
+            {/* TAB VEHÍCULOS: lista + formulario */}
+            {activeTab === 'vehicle' && (
               <div className="space-y-6">
+                {/* Lista de vehículos del usuario */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>Preferencias de Notificaciones</CardTitle>
+                    <CardTitle>Mis vehículos</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium">Notificaciones push</h3>
-                        <p className="text-sm text-gray-600">Recibe alertas importantes</p>
+                  <CardContent>
+                    {vehiclesLoading && (
+                      <p className="text-sm text-gray-500">Cargando vehículos...</p>
+                    )}
+
+                    {vehiclesError && (
+                      <p className="text-sm text-red-600">{vehiclesError}</p>
+                    )}
+
+                    {!vehiclesLoading && !vehiclesError && vehicles.length === 0 && (
+                      <p className="text-sm text-gray-500">
+                        Aún no tienes vehículos registrados.
+                      </p>
+                    )}
+
+                    {!vehiclesLoading && !vehiclesError && vehicles.length > 0 && (
+                      <div className="space-y-3">
+                        {vehicles.map((v, idx) => (
+                          <div
+                            key={v.id || idx}
+                            className="flex items-center justify-between p-3 border rounded-lg bg-gray-50"
+                          >
+                            <div className="flex items-center space-x-3">
+                              <span className="text-2xl">
+                                {getVehicleIcon((v.type || 'SCOOTER').toLowerCase())}
+                              </span>
+                              <div>
+                                <p className="font-medium">
+                                  {v.brand} • {v.type}
+                                </p>
+                                <p className="text-sm text-gray-600">
+                                  Color: {v.color}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <input type="checkbox" defaultChecked className="rounded" />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium">Alertas de rutas</h3>
-                        <p className="text-sm text-gray-600">Notificaciones sobre nuevas rutas</p>
-                      </div>
-                      <input type="checkbox" defaultChecked className="rounded" />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium">Actividad social</h3>
-                        <p className="text-sm text-gray-600">Likes, comentarios y menciones</p>
-                      </div>
-                      <input type="checkbox" className="rounded" />
-                    </div>
+                    )}
                   </CardContent>
                 </Card>
 
+                {/* Formulario para añadir vehículo */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>Privacidad</CardTitle>
+                    <CardTitle>Añadir vehículo</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium">Perfil público</h3>
-                        <p className="text-sm text-gray-600">Permite que otros te encuentren</p>
-                      </div>
-                      <input type="checkbox" defaultChecked className="rounded" />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium">Mostrar ubicación</h3>
-                        <p className="text-sm text-gray-600">Comparte tu ubicación en el mapa</p>
-                      </div>
-                      <input type="checkbox" defaultChecked className="rounded" />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium">Historial de rutas visible</h3>
-                        <p className="text-sm text-gray-600">Otros pueden ver tus rutas</p>
-                      </div>
-                      <input type="checkbox" className="rounded" />
-                    </div>
-                  </CardContent>
-                </Card>
+                  <CardContent>
+                    <form className="space-y-4" onSubmit={handleVehicleSubmit}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="brand">Marca</Label>
+                          <Input
+                            id="brand"
+                            value={vehicleData.brand}
+                            onChange={(e) => handleVehicleChange('brand', e.target.value)}
+                            placeholder="Xiaomi"
+                          />
+                        </div>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Seguridad</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <Button variant="outline" className="w-full justify-start">
-                      <Shield className="w-4 h-4 mr-2" />
-                      Cambiar Contraseña
-                    </Button>
-                    <Button variant="outline" className="w-full justify-start">
-                      <Shield className="w-4 h-4 mr-2" />
-                      Autenticación de dos factores
-                    </Button>
-                    <Button variant="outline" className="w-full justify-start text-red-600 border-red-200 hover:bg-red-50">
-                      <X className="w-4 h-4 mr-2" />
-                      Eliminar Cuenta
-                    </Button>
+                        <div className="space-y-2">
+                          <Label htmlFor="color">Color</Label>
+                          <Input
+                            id="color"
+                            value={vehicleData.color}
+                            onChange={(e) => handleVehicleChange('color', e.target.value)}
+                            placeholder="Negro"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="type">Tipo de vehículo</Label>
+                        <Select
+                          value={vehicleData.type}
+                          onValueChange={(value) => handleVehicleChange('type', value)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecciona un tipo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="SCOOTER">Scooter eléctrico</SelectItem>
+                            <SelectItem value="BICYCLE">Bicicleta eléctrica</SelectItem>
+                            <SelectItem value="MOTORCYCLE">Moto eléctrica</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {vehicleStatus.error && (
+                        <p className="text-sm text-red-600">
+                          {vehicleStatus.error}
+                        </p>
+                      )}
+
+                      {vehicleStatus.success && (
+                        <p className="text-sm text-green-600">
+                          {vehicleStatus.success}
+                        </p>
+                      )}
+
+                      <Button
+                        type="submit"
+                        className="bg-green-600 hover:bg-green-700"
+                        disabled={vehicleStatus.loading}
+                      >
+                        {vehicleStatus.loading ? 'Guardando...' : 'Guardar vehículo'}
+                      </Button>
+                    </form>
                   </CardContent>
                 </Card>
               </div>
